@@ -1,0 +1,211 @@
+---
+title: "Plots"
+date: "13 maj 2020"
+output: html_document
+---
+
+### Load Packages and Data
+```{r}
+library(pacman)
+pacman::p_load(
+  tidyverse,
+  gridExtra,
+  patchwork
+)
+### Load data ###
+d000 <- read_csv("Results/saved_results_000.csv") %>% mutate(pb = 0)
+d001 <- read_csv("Results/saved_results_001.csv") %>% mutate(pb = 1) 
+d200 <- read_csv("Results/saved_results_200.csv") %>% mutate(pb = 0)
+d201 <- read_csv("Results/saved_results_201.csv") %>% mutate(pb = 1)
+d400 <- read_csv("Results/saved_results_400.csv") %>% mutate(pb = 0)
+d401 <- read_csv("Results/saved_results_401.csv") %>% mutate(pb = 1)
+
+#merge data
+d <- rbind(d000, d001, d200, d201, d400, d401)         
+d <- d %>% select(-c(X1))
+
+### Load meta data ###
+meta000 <- read_csv("Results/meta_analysis_results_000.csv") %>% mutate(pb = 0)
+meta001 <- read_csv("Results/meta_analysis_results_001.csv") %>% mutate(pb = 1) 
+meta200 <- read_csv("Results/meta_analysis_results_200.csv") %>% mutate(pb = 0)
+meta201 <- read_csv("Results/meta_analysis_results_201.csv") %>% mutate(pb = 1)
+meta400 <- read_csv("Results/meta_analysis_results_400.csv") %>% mutate(pb = 0)
+meta401 <- read_csv("Results/meta_analysis_results_401.csv") %>% mutate(pb = 1)
+
+#merge data
+meta <- rbind(meta000, meta001, meta200, meta201, meta400, meta401) %>% mutate(analysis_type = "meta-analysis")
+
+```
+
+
+
+
+
+
+
+### Summaries
+Creating summary table for appendix (pp, bglmm, and bskep)
+```{r regular }
+# Summary of estimates from last pp
+d_last_pp <- d %>%  group_by(true_sex_cond, publication_bias) %>% 
+  filter(expt == max(expt), analysis_type == "pp") %>% 
+  summarise(
+    estimate = b_sex_cond_med,
+    CI_lower = b_sex_cond_lower,
+    CI_upper = b_sex_cond_upper, 
+    analysis_type = "pp"
+    )
+
+# Summary of estimates from bglmm and bskep
+d_mean <- d %>% filter(analysis_type != "pp") %>% 
+  group_by(true_sex_cond, publication_bias, analysis_type) %>% 
+  summarize(
+    estimate = mean(b_sex_cond_med),
+    CI_lower = mean(b_sex_cond_lower),
+    CI_upper = mean(b_sex_cond_upper)
+  )
+
+# Merging summaries
+d_summarized <- rbind(d_last_pp, d_mean) %>% 
+  mutate(
+    dist = estimate - (boot::inv.logit(true_sex_cond) - 0.5),
+    dist_lower = CI_lower - (boot::inv.logit(true_sex_cond) - 0.5),
+    dist_upper = CI_upper - (boot::inv.logit(true_sex_cond) - 0.5)
+  )
+
+# Make pretty
+d_summarized <- d_summarized[order(d_summarized$analysis_type, d_summarized$publication_bias, d_summarized$true_sex_cond),]
+
+format_summarized <- d_summarized %>% 
+  formattable()
+```
+
+Creating summary table for appendix (meta-analysis and pp)
+```{r meta + pp}
+
+# Summarizing estimates for metaanalysis 
+meta_pp <- meta %>% rename(
+    estimate = b_sex_cond_meta,
+    CI_lower = b_sex_cond_lower_meta,
+    CI_upper = b_sex_cond_upper_meta,
+    true_sex_cond = true_effect
+  ) %>% select(
+    analysis_type, pb, estimate, CI_lower, CI_upper, true_sex_cond
+  )
+
+# Adding estimate from last pp (and ensuring correct scale)
+meta_pp <- rbind(as.tibble(d_last_pp), meta_pp) %>% #see regular for d_last_pp
+  mutate(
+    dist = estimate - (boot::inv.logit(true_sex_cond) - 0.5),
+    dist_lower = CI_lower - (boot::inv.logit(true_sex_cond) - 0.5),
+    dist_upper = CI_upper - (boot::inv.logit(true_sex_cond) - 0.5)
+  )
+
+# Make table
+meta_pp %>% formattable()
+```
+
+### Plots
+Plot that compares estimates from bglmm, bskep, and pp across all experiments (without publication bias)
+```{r figure 2}
+
+# Remove data with publication bias
+d_pb0 <- d[d$pb == 0,]
+
+#### PLOTTING ####
+
+# Plotting true effect 0
+te0_pb0_plot <- ggplot(data = d_pb0[d_pb0$true_sex_cond == 0,]) + 
+  geom_point(aes(x = expt, y = b_sex_cond_med, color = analysis_type), size = 1) +
+  geom_errorbar(aes(x = expt, ymax = b_sex_cond_upper, ymin = b_sex_cond_lower, color = analysis_type, width = 1), alpha = 0.5, size = 0.8) +
+  geom_line(aes(x = as.numeric(expt), y = (boot::inv.logit(true_sex_cond) - boot::inv.logit(true_base))), 
+            color = 'black', size = 1) +
+  scale_color_manual(values=c("goldenrod2", "seagreen4", "red")) +
+  labs(x = "Experiment number", y = "Interaction Estimate", color = "Analysis Type")  + 
+  ggtitle("A") + 
+  theme_minimal()
+
+# Plotting true effect 1
+te1_pb0_plot <- ggplot(data = d_pb0[d_pb0$true_sex_cond == 1,]) + 
+  geom_point(aes(x = expt, y = b_sex_cond_med, color = analysis_type), size = 1) +
+  geom_errorbar(aes(x = expt, ymax = b_sex_cond_upper, ymin = b_sex_cond_lower, color = analysis_type, width = 1), alpha = 0.5, size = 0.8) +
+  geom_line(aes(x = as.numeric(expt), y = (boot::inv.logit(true_sex_cond) - boot::inv.logit(true_base))), 
+            color = 'black', size = 1) +
+  scale_color_manual(values=c("goldenrod2", "seagreen4", "red")) +
+  labs(x = "Experiment number", y = "Interaction Estimate", color = "Analysis Type") + 
+  ggtitle("B") + 
+  theme_minimal()
+
+# Plotting true effect 2
+te2_pb0_plot <- ggplot(data =  d_pb0[d_pb0$true_sex_cond == 2,]) + 
+  geom_point(aes(x = expt, y = b_sex_cond_med, color = analysis_type), size = 1) +
+  geom_errorbar(aes(x = expt, ymax = b_sex_cond_upper, ymin = b_sex_cond_lower, color = analysis_type, width = 1), alpha = 0.5, size = 0.8) +
+  geom_line(aes(x = as.numeric(expt), y = (boot::inv.logit(true_sex_cond) - boot::inv.logit(true_base))), 
+            color = 'black', size = 1) +
+  scale_color_manual(values=c("goldenrod2", "seagreen4", "red")) +
+  labs(x = "Experiment number", y = "Interaction Estimate", color = "Analysis Type") + 
+  ggtitle("C") + 
+  theme_minimal()
+
+
+# Arranging plots
+combined_te_pb0_plot <- te0_pb0_plot + te1_pb0_plot + te2_pb0_plot & theme(legend.position = "bottom")
+combined_te_pb0_plot + plot_layout(guides = "collect")
+
+```
+
+Plot that compares distance from true effect of meta-analysis vs. pp (without publication bias)
+```{r figure 3}
+
+# Calculating distance from true effect
+d$abs_dist <- abs(d$b_sex_cond_med - (boot::inv.logit(d$true_sex_cond)-boot::inv.logit(d$true_base))) #absolute distance
+d$dist <- d$b_sex_cond_med - (boot::inv.logit(d$true_sex_cond)-boot::inv.logit(d$true_base)) #distance
+
+# Calculating CIs
+d$b_sex_cond_lower <- d$b_sex_cond_lower - (boot::inv.logit(d$true_sex_cond)-boot::inv.logit(d$true_base))
+d$b_sex_cond_upper <- d$b_sex_cond_upper - (boot::inv.logit(d$true_sex_cond)-boot::inv.logit(d$true_base))
+
+
+#### PLOTTING ####
+
+ggplot(data = meta_pp[meta_pp$pb == 0,]) +  
+  geom_point(aes(x = true_sex_cond, y = dist, color = analysis_type), size = 2) +
+  geom_errorbar(aes(x = true_sex_cond, ymax = dist_upper, ymin = dist_lower, 
+                    color = analysis_type), width = 0.1, alpha = 0.5, size = 1) +
+  geom_line(aes(x = true_sex_cond, y = 0), 
+            color = 'black', size = 1) +
+  scale_color_manual(values=c("royalblue", "red")) +
+  labs(x = "True Interaction Effect", y = "Distance from True Interaction Estimate", color = "Analysis Type") +
+  theme_minimal()
+
+```
+
+Plot that compares distance from true effect of pp with/without publication bias
+```{r publication bias}
+
+#### PLOTTING ####
+
+# pp distance from true effect (without publication bias)
+pp_pb0_plot <- ggplot(data = d_pb0[d_pb0$analysis_type == "pp",], aes(x = expt, y = abs_dist, color = as.factor(true_sex_cond)), size = 1) + 
+  geom_point() + geom_line(size = 0.3) +  
+  scale_color_manual(values=c("cyan4", "darkgoldenrod1", "violetred2")) +
+  labs(x = "Experiment number", y = "Distance from true effect", color = "True Effect",
+       title = "A")  + 
+  scale_y_continuous(limit= c(0, 0.11)) +
+  theme_minimal() + theme(legend.position = "bottom") 
+
+# pp distance from true effect (with publication bias)
+pp_pb1_plot <- ggplot(data = d_pb1[d_pb1$analysis_type == "pp",], aes(x = expt, y = abs_dist, color = as.factor(true_sex_cond)), size = 1) + 
+  geom_point() + geom_line(size = 0.3) + 
+  scale_color_manual(values=c("cyan4", "darkgoldenrod1", "violetred2")) +
+  labs(x = "Experiment number", y = "Distance from true effect", color = "True Effect", 
+       title = "B")  + 
+  scale_y_continuous(limit= c(0, 0.11)) +
+  theme_minimal() + theme(legend.position = "bottom") 
+
+# Arranging plots
+pp_pb_plot <- pp_pb0_plot + pp_pb1_plot & theme(legend.position = "bottom")
+pp_pb_plot + plot_layout(guides = "collect") 
+
+```
+
